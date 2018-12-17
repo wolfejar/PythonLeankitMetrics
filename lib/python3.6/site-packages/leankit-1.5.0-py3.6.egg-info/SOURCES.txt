@@ -1,0 +1,12 @@
+README.md
+setup.cfg
+setup.py
+leankit/__init__.py
+leankit/config.py
+leankit/connector.py
+leankit/kanban.py
+leankit.egg-info/PKG-INFO
+leankit.egg-info/SOURCES.txt
+leankit.egg-info/dependency_links.txt
+leankit.egg-info/requires.txt
+leankit.egg-info/top_level.txt
