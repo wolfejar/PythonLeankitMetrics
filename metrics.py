@@ -5,20 +5,12 @@ from _datetime import datetime, timezone
 from datetime import date
 from dateutil import parser
 from dateutil.relativedelta import relativedelta, MO
-import smtplib
-from email.mime.multipart import MIMEMultipart
-from email.mime.text import MIMEText
 
 # cmd args: domain (ksu), username, password
 
 domain = sys.argv[1]
 username = sys.argv[2]
 password = sys.argv[3]
-
-mailserver = smtplib.SMTP('smtp.office365.com', 587)
-mailserver.ehlo()
-mailserver.starttls()
-mailserver.login('wolfejar@ksu.edu', 'dsgacTddR7')
 
 client = statsd.StatsClient('localhost', 8125)
 
@@ -190,15 +182,3 @@ for user in cards_developed_this_week.keys():
 # gauge total size of cards deployed this week
 client.gauge("Leankit.WeeklyDeployments", size_of_cards_deployed_this_week)
 
-
-lane_time_limits = ""
-message = MIMEMultipart()
-message['FROM'] = 'wolfejar@ksu.edu'
-
-message['TO'] = 'wolfejar@ksu.edu'
-message['Subject'] = 'User Card Update'
-
-"""body = MIMEText(lane_time_limits, 'plain')
-message.attach(body)
-mailserver.sendmail('wolfejar@ksu.edu', 'wolfejar@ksu.edu', message.as_string())
-mailserver.quit()"""
