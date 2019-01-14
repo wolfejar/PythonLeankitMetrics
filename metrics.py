@@ -5,8 +5,10 @@ from _datetime import datetime, timezone
 from datetime import date
 from dateutil import parser
 from dateutil.relativedelta import relativedelta, MO
+import pytz
+# cmd args: domain, username, password
 
-# cmd args: domain (ksu), username, password
+utc = pytz.UTC
 
 domain = sys.argv[1]
 username = sys.argv[2]
@@ -19,16 +21,22 @@ leankit.api.authenticate(domain, username, password)
 AppDevID = leankit.get_boards()[0]["Id"]
 
 AppDevBoard = leankit.Board(AppDevID)
-
 card_size_by_user = {}
 cards_developed_this_week = {}
 size_of_cards_deployed_this_week = 0
+
+pipe_one = client.pipeline()
+
+weekly_points_per_user = {}
+
+for user in AppDevBoard.users.items():
+    weekly_points_per_user[user[1]["FullName"]] = 0
 
 for lane in AppDevBoard.top_level_lanes:
 
     # Calculate size of cards in lane vs lane WIP limit
     size = 0
-    client.gauge("Leankit.Lanes.Limits."+lane["Title"], lane["CardLimit"])
+    pipe_one.gauge("Leankit.Lanes.Limits."+lane["Title"], lane["CardLimit"])
     for card in lane["Cards"]:
             if card["Size"] == 0:
                 card["Size"] = 1
@@ -38,7 +46,7 @@ for lane in AppDevBoard.top_level_lanes:
             if card["Size"] == 0:
                 card["Size"] = 1
             size += card["Size"]
-    client.gauge("Leankit.Lanes.TotalSizes."+lane["Title"], size)
+    pipe_one.gauge("Leankit.Lanes.TotalSizes."+lane["Title"], size)
 
     # Calculate cycle time for each lane and each individual card within the lane
     total_lane_cycle_time = 0
@@ -46,7 +54,7 @@ for lane in AppDevBoard.top_level_lanes:
         card_cycle_time = (datetime.now() - parser.parse(card["LastMove"])).total_seconds()
         total_lane_cycle_time += card_cycle_time
         # Gauge cycle time for card
-        client.gauge("Leankit.Lanes.CycleTimes."+lane["Title"]+".ID-"+card["ExternalCardID"], card_cycle_time)
+        pipe_one.gauge("Leankit.Lanes.CycleTimes."+lane["Title"]+".ID-"+card["ExternalCardID"], card_cycle_time)
     for child_lane in lane["ChildLanes"]:
         for card in child_lane["Cards"]:
             card_cycle_time = (datetime.now() - parser.parse(card["LastMove"])).total_seconds()
@@ -55,7 +63,7 @@ for lane in AppDevBoard.top_level_lanes:
             client.gauge("Leankit.Lanes.CycleTimes." + lane["Title"] + ".ID-" + card["ExternalCardID"],
                          card_cycle_time)
     # Gauge cycle time for lane
-    client.gauge("Leankit.Lanes.CycleTimes."+lane["Title"], total_lane_cycle_time)
+    pipe_one.gauge("Leankit.Lanes.CycleTimes."+lane["Title"], total_lane_cycle_time)
 
     # record card sizes per user
     for card in lane["Cards"]:
@@ -79,8 +87,8 @@ for lane in AppDevBoard.top_level_lanes:
         for card in lane["Cards"]:
             creation_date = datetime.combine(AppDevBoard.get_card(card["Id"])["CreateDate"], datetime.min.time())
             lead_time = (parser.parse(card["LastMove"]) - creation_date).total_seconds()
-            client.gauge("Leankit.Cards.Types."+card["TypeName"]+".ID-"+card["ExternalCardID"], lead_time)
-            client.gauge("Leankit.Cards.Sizes."+card["Size"]+".ID-"+card["ExternalCardID"], lead_time)
+            pipe_one.gauge("Leankit.Cards.Types."+card["TypeName"]+".ID-"+card["ExternalCardID"], lead_time)
+            pipe_one.gauge("Leankit.Cards.Sizes."+card["Size"]+".ID-"+card["ExternalCardID"], lead_time)
             # record weekly deployment stats
             last_monday = date.today() + relativedelta(weekday=MO(-1))
             if parser.parse(card["LastMove"]) >= datetime.combine(last_monday, datetime.min.time()):
@@ -89,13 +97,26 @@ for lane in AppDevBoard.top_level_lanes:
             for card in child_lane["Cards"]:
                 creation_date = datetime.combine(AppDevBoard.get_card(card["Id"])["CreateDate"], datetime.min.time())
                 lead_time = (parser.parse(card["LastMove"]) - creation_date).total_seconds()
-                client.gauge("Leankit.Cards.Types." + card["TypeName"] + ".ID-" + card["ExternalCardID"],
-                             lead_time)
-                client.gauge("Leankit.Cards.Sizes." + str(card["Size"]) + ".ID-" + card["ExternalCardID"], lead_time)
+                pipe_one.gauge("Leankit.Cards.Types." + card["TypeName"] + ".ID-" + card["ExternalCardID"],
+                               lead_time)
+                pipe_one.gauge("Leankit.Cards.Sizes." + str(card["Size"]) + ".ID-" + card["ExternalCardID"], lead_time)
                 # record weekly deployment stats
                 last_monday = date.today() + relativedelta(weekday=MO(-1))
                 if parser.parse(card["LastMove"]) >= datetime.combine(last_monday, datetime.min.time()):
                     size_of_cards_deployed_this_week += card["Size"]
+            for child_child_lane in child_lane["ChildLanes"]:
+                for card in child_child_lane["Cards"]:
+                    creation_date = datetime.combine(AppDevBoard.get_card(card["Id"])["CreateDate"],
+                                                     datetime.min.time())
+                    lead_time = (parser.parse(card["LastMove"]) - creation_date).total_seconds()
+                    pipe_one.gauge("Leankit.Cards.Types." + card["TypeName"] + ".ID-" + card["ExternalCardID"],
+                                   lead_time)
+                    pipe_one.gauge("Leankit.Cards.Sizes." + str(card["Size"]) + ".ID-" + card["ExternalCardID"],
+                                   lead_time)
+                    # record weekly deployment stats
+                    last_monday = date.today() + relativedelta(weekday=MO(-1))
+                    if parser.parse(card["LastMove"]) >= datetime.combine(last_monday, datetime.min.time()):
+                        size_of_cards_deployed_this_week += card["Size"]
 
     # record card points dev complete per user this week
     if lane["Title"] == "Dev Complete":
@@ -108,7 +129,8 @@ for lane in AppDevBoard.top_level_lanes:
                         cards_developed_this_week[username] += card["Size"]
                     else:
                         cards_developed_this_week[username] = card["Size"]
-
+pipe_one.send()
+pipe_two = client.pipeline()
 # store Event objects from each card in card_history dictionary
 card_history = {}
 for card in AppDevBoard.cards:
@@ -117,7 +139,7 @@ for card in AppDevBoard.cards:
     for item in AppDevBoard.cards[card].history:
         history.append(item)
     card_history[card] = history
-
+    # too many cards in archive lane to store history
 
 all_card_moves = {}
 for card in card_history.items():
@@ -133,6 +155,7 @@ for card in card_history.items():
 
 card_times = {}
 card_times_per_user = {}
+last_monday = date.today() + relativedelta(weekday=MO(-1))
 for hist in all_card_moves.items():
     card_id = AppDevBoard.cards[hist[0]]["ExternalCardID"]
     card_users = AppDevBoard.cards[hist[0]]["AssignedUsers"]
@@ -162,23 +185,45 @@ for hist in all_card_moves.items():
         else:
             card_times_per_user[user["FullName"]] = {}
             card_times_per_user[user["FullName"]][card_id] = time_in_lanes
+    dev_complete_limit = False
+    passed_qa_limit = False
+    for item in hist[1]:
+        if item[0] == "Dev Complete" and dev_complete_limit is False\
+                and parser.parse(item[1]) >= utc.localize(datetime.combine(last_monday, datetime.min.time())):
+            for user in card_users:
+                weekly_points_per_user[user["FullName"]] += int(AppDevBoard.cards[hist[0]]["Size"])
+            dev_complete_limit = True
+        if item[0] == "Passed QA" and passed_qa_limit is False\
+                and parser.parse(item[1]) >= utc.localize(datetime.combine(last_monday, datetime.min.time())):
+            for user in card_users:
+                weekly_points_per_user[user["FullName"]] += int(AppDevBoard.cards[hist[0]]["Size"])
+            passed_qa_limit = True
+        if item[0] == "Testing" and\
+                parser.parse(item[1]) >= utc.localize(datetime.combine(last_monday, datetime.min.time())):
+            weekly_points_per_user["Cindy Sorrick"] += int(AppDevBoard.cards[hist[0]]["Size"])
 
 # gauge time per lane for each card
 for item in card_times.items():
     for lane_time_pair in item[1].items():
-        client.gauge("Leankit.Cards.CycleTimes.ID-" + str(item[0]) + "." + lane_time_pair[0], lane_time_pair[1])
+        pipe_two.gauge("Leankit.Cards.CycleTimes.ID-" + str(item[0]) + "." + lane_time_pair[0], lane_time_pair[1])
 for user in card_times_per_user.items():
     for item in user[1].items():
         for lane_time_pair in item[1].items():
-            client.gauge("Leankit.Users.CycleTimes."+user[0]+".ID-" + str(item[0]) + "." + lane_time_pair[0],
-                         lane_time_pair[1])
+            pipe_two.gauge("Leankit.Users.CycleTimes."+user[0]+".ID-" + str(item[0]) + "." + lane_time_pair[0],
+                           lane_time_pair[1])
 # gauge total work load (size) per user, reset stats for dev_complete per user
 for user in card_size_by_user.keys():
-    client.gauge("Leankit.Users.TotalSize." + user, card_size_by_user[user])
-    client.gauge("Leankit.Users.WeeklyDevelopment." + user, 0)
+    pipe_two.gauge("Leankit.Users.TotalSize." + user, card_size_by_user[user])
+    pipe_two.gauge("Leankit.Users.WeeklyDevelopment." + user, 0)
 # gauge total size of cards in dev complete this week by user
 for user in cards_developed_this_week.keys():
-    client.gauge("Leankit.Users.WeeklyDevelopment." + user, cards_developed_this_week[user])
+    pipe_two.gauge("Leankit.Users.WeeklyDevelopment." + user, cards_developed_this_week[user])
 # gauge total size of cards deployed this week
-client.gauge("Leankit.WeeklyDeployments", size_of_cards_deployed_this_week)
+pipe_two.gauge("Leankit.WeeklyDeployments", size_of_cards_deployed_this_week)
+# gauge points for game among users
+for user in weekly_points_per_user:
+    pipe_two.gauge("Leankit.Game." + user, weekly_points_per_user[user])
+for item in weekly_points_per_user.items():
+    print(item)
+pipe_two.send()
 
