@@ -3,6 +3,7 @@ import leankit
 import statsd
 from _datetime import datetime, timezone
 from datetime import date
+from datetime import timedelta
 from dateutil import parser
 from dateutil.relativedelta import relativedelta, MO
 import pytz
@@ -133,6 +134,9 @@ pipe_one.send()
 pipe_two = client.pipeline()
 # store Event objects from each card in card_history dictionary
 card_history = {}
+stuck_cards = []
+possible_stuck_lanes = ["Active Development", "Code Review", "Dev Complete",
+                        "Available For Testing", "Testing", "Passed QA"]
 for card in AppDevBoard.cards:
     # print(AppDevBoard.cards[card])
     history = []
@@ -151,8 +155,12 @@ for card in card_history.items():
                 card_move_events.append((event["ToLaneTitle"], event["EventDateTime"]))
         elif "CardCreationEventDTO" == event["Type"]:
             card_move_events.append((event["ToLaneTitle"], event["EventDateTime"]))
+    # record cards stuck in certain lanes for more than 3 days
+    time_since_move = datetime.now() - card[1][-1]["DateTime"]
+    if time_since_move > timedelta(days=3) and\
+            AppDevBoard.Lanes[AppDevBoard.cards[card[0]]["LaneId"]]["Title"] in possible_stuck_lanes:
+        stuck_cards.append((AppDevBoard.cards[card[0]], time_since_move))
     all_card_moves[card[0]] = card_move_events
-
 card_times = {}
 card_times_per_user = {}
 last_monday = date.today() + relativedelta(weekday=MO(-1))
@@ -211,10 +219,9 @@ for user in card_times_per_user.items():
         for lane_time_pair in item[1].items():
             pipe_two.gauge("Leankit.Users.CycleTimes."+user[0]+".ID-" + str(item[0]) + "." + lane_time_pair[0],
                            lane_time_pair[1])
-# gauge total work load (size) per user, reset stats for dev_complete per user
+# gauge total work load (size) per user
 for user in card_size_by_user.keys():
     pipe_two.gauge("Leankit.Users.TotalSize." + user, card_size_by_user[user])
-    pipe_two.gauge("Leankit.Users.WeeklyDevelopment." + user, 0)
 # gauge total size of cards in dev complete this week by user
 for user in cards_developed_this_week.keys():
     pipe_two.gauge("Leankit.Users.WeeklyDevelopment." + user, cards_developed_this_week[user])
@@ -223,6 +230,10 @@ pipe_two.gauge("Leankit.WeeklyDeployments", size_of_cards_deployed_this_week)
 # gauge points for game among users
 for user in weekly_points_per_user:
     pipe_two.gauge("Leankit.Game." + user, weekly_points_per_user[user])
+# Send all stuck cards
+for card in stuck_cards:
+    print("ID-" + card[0]["ExternalCardID"] + ", " + str(card[1].total_seconds()) + " seconds")
+    client.gauge("Leankit.Cards.Stuck.ID-" + card[0]["ExternalCardID"], int(card[1].total_seconds()))
 for item in weekly_points_per_user.items():
     print(item)
 pipe_two.send()
