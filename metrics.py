@@ -121,8 +121,6 @@ for hist in all_card_moves.items():
 for user in card_size_by_user.keys():
     pipe_one.gauge("Leankit.Users.TotalSize." + user, card_size_by_user[user])
 
-# gauge total size of cards deployed this week
-pipe_one.gauge("Leankit.WeeklyDeployments", size_of_cards_deployed_this_week)
 # gauge points for game among users
 for user in weekly_points_per_user:
     if weekly_points_per_user[user] > 0:
@@ -246,10 +244,23 @@ for lane in AppDevBoard.top_level_lanes:
                     if parser.parse(card["LastMove"]) >= datetime.combine(last_monday, datetime.min.time()):
                         size_of_cards_deployed_this_week += card["Size"]
     '''
+    # Track number of cards moved to "Done" this week
+    if lane["Title"] == "Done":
+        for card in lane["Cards"]:
+            if parser.parse(card["LastMove"]) >= datetime.combine(last_monday, datetime.min.time()):
+                size_of_cards_deployed_this_week += card["Size"]
+        for child_lane in lane["ChildLanes"]:
+            for card in child_lane["Cards"]:
+                if parser.parse(card["LastMove"]) >= datetime.combine(last_monday, datetime.min.time()):
+                    size_of_cards_deployed_this_week += card["Size"]
+            for child_child_lane in child_lane["ChildLanes"]:
+                for card in child_child_lane["Cards"]:
+                    if parser.parse(card["LastMove"]) >= datetime.combine(last_monday, datetime.min.time()):
+                        size_of_cards_deployed_this_week += card["Size"]
+
     # record card points dev complete per user this week
     if lane["Title"] == "Dev Complete":
         for card in lane["Cards"]:
-            last_monday = date.today() + relativedelta(weekday=MO(-1))
             if parser.parse(card["LastMove"]) >= datetime.combine(last_monday, datetime.min.time()):
                 for username in card["AssignedUsers"]:
                     username = username["FullName"]
@@ -257,9 +268,12 @@ for lane in AppDevBoard.top_level_lanes:
                         cards_developed_this_week[username] += int(card["Size"])
                     else:
                         cards_developed_this_week[username] = int(card["Size"])
+
     # gauge total size of cards in dev complete this week by user
     for user in cards_developed_this_week.keys():
         pipe_one.gauge("Leankit.Users.WeeklyDevelopment." + user, cards_developed_this_week[user])
+    # gauge total size of cards deployed this week
+    pipe_one.gauge("Leankit.WeeklyDeployments", size_of_cards_deployed_this_week)
     pipe_one.send()
     print("Data sent...")
 
