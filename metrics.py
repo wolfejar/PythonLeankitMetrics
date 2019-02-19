@@ -108,6 +108,10 @@ for hist in all_card_moves.items():
                 and parser.parse(item[1]) >= utc.localize(datetime.combine(last_monday, datetime.min.time())):
             for user in card_users:
                 weekly_points_per_user[user["FullName"]] += int(AppDevBoard.cards[hist[0]]["Size"])
+                if user in cards_developed_this_week.keys():
+                    cards_developed_this_week[user["FullName"]] += int(AppDevBoard.cards[hist[0]]["Size"])
+                else:
+                    cards_developed_this_week[user["FullName"]] = int(AppDevBoard.cards[hist[0]]["Size"])
             dev_complete_limit = True
         if item[0] == "Passed QA" and passed_qa_limit is False\
                 and parser.parse(item[1]) >= utc.localize(datetime.combine(last_monday, datetime.min.time())):
@@ -269,16 +273,6 @@ for lane in AppDevBoard.top_level_lanes:
                     if parser.parse(card["LastMove"]) >= datetime.combine(last_monday, datetime.min.time()):
                         size_of_cards_deployed_this_week += card["Size"]
 
-    # record card points dev complete per user this week
-    if lane["Title"] == "Dev Complete":
-        for card in lane["Cards"]:
-            if parser.parse(card["LastMove"]) >= datetime.combine(last_monday, datetime.min.time()):
-                for username in card["AssignedUsers"]:
-                    username = username["FullName"]
-                    if username in cards_developed_this_week.keys():
-                        cards_developed_this_week[username] += int(card["Size"])
-                    else:
-                        cards_developed_this_week[username] = int(card["Size"])
 pie_layout = go.Layout(
     title='Lane Limits',
     annotations=pie_annotation_list,
@@ -289,6 +283,7 @@ fig = {
 }
 py.plot(fig, filename="Lane-Limits", auto_open=False)
 print("Lane Limits... Done")
+
 # gauge total size of cards in dev complete this week by user
 cards_developed_this_week_data = [go.Bar(
     x=list(cards_developed_this_week.keys()),
