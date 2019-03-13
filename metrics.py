@@ -1,16 +1,17 @@
 import sys
 import leankit
-import statsd
 from _datetime import datetime, timezone
 from datetime import date
 from datetime import timedelta
 from dateutil import parser
 from dateutil.relativedelta import relativedelta, MO
 import pytz
+# import plotly.offline as py  # use this for testing, doesn't contribute to plotly data limit
 import plotly
 import plotly.plotly as py
 import plotly.graph_objs as go
-import time
+import re
+
 # cmd args: domain, username, password
 
 utc = pytz.UTC
@@ -21,19 +22,19 @@ password = sys.argv[3]
 
 plotly.tools.set_credentials_file(username=sys.argv[4], api_key=sys.argv[5])
 
-
-# client = statsd.StatsClient('localhost', 8125)
-
 leankit.api.authenticate(domain, username, password)
 
 AppDevID = leankit.get_boards()[0]["Id"]
+
+
+def take_second(elem):
+    return elem[1]
+
 
 AppDevBoard = leankit.Board(AppDevID)
 card_size_by_user = {}
 cards_developed_this_week = {}
 size_of_cards_deployed_this_week = 0
-
-# pipe_one = client.pipeline()
 
 weekly_points_per_user = {}
 
@@ -45,14 +46,38 @@ card_history = {}
 stuck_cards = []
 possible_stuck_lanes = ["Active", "Code Review", "Dev Complete",
                         "Available for Testing", "Testing", "Passed QA"]
+app_list = ['admissions', 'sso', 'ctam', 'eis', 'elp', 'expansis', 'gradesubmission', 'grouper', 'eprofile',
+            'sanitychecker', 'idmservices', 'idmsupport', 'jenkins', 'jobapp', 'attendance', 'peoplesearch',
+            'psengine', 'pdb', 'photoroster', 'scantron', 'sga', 'shibboleth', 'telecom', 'teval']
+app_dict = {}
 for card in AppDevBoard.cards:
     # print(AppDevBoard.cards[card])
     history = []
     for item in AppDevBoard.cards[card].history:
         history.append(item)
     card_history[card] = history
+    for app_title in app_list:
+        if app_title in re.sub('-','', AppDevBoard.cards[card]['Title'].lower()):
+            if app_title in app_dict.keys():
+                app_dict[app_title].append(AppDevBoard.cards[card])
+            else:
+                app_dict[app_title] = [AppDevBoard.cards[card]]
+
     # too many cards in archive lane to store history
 
+app_card_id = []
+app_card_app = []
+app_card_color = []
+app_card_days = []
+app_card_size = []
+
+'''for key, value in app_dict.items():
+    for card in value:
+        app_card_days.append((datetime.now() - card["CreateDate"]).days)
+        app_card_app.append(key)
+        app_card_size.append(card['Size'])
+        app_card_id.append(card['ExternalCardID'])
+'''
 all_card_moves = {}
 for card in card_history.items():
     card_move_events = []
@@ -69,6 +94,7 @@ for card in card_history.items():
             AppDevBoard.Lanes[AppDevBoard.cards[card[0]]["LaneId"]]["Title"] in possible_stuck_lanes:
         stuck_cards.append((AppDevBoard.cards[card[0]], time_since_move))
     all_card_moves[card[0]] = card_move_events
+stuck_cards.sort(key=take_second, reverse=True)  # Sort stuck cards in descending order by the time since last move
 card_times = {}
 card_times_per_user = {}
 last_monday = date.today() + relativedelta(weekday=MO(-1))
@@ -104,23 +130,33 @@ for hist in all_card_moves.items():
     dev_complete_limit = False
     passed_qa_limit = False
     for item in hist[1]:
+        size = int(AppDevBoard.cards[hist[0]]["Size"])
         if item[0] == "Dev Complete" and dev_complete_limit is False\
                 and parser.parse(item[1]) >= utc.localize(datetime.combine(last_monday, datetime.min.time())):
             for user in card_users:
-                weekly_points_per_user[user["FullName"]] += int(AppDevBoard.cards[hist[0]]["Size"])
+                weekly_points_per_user[user["FullName"]] += size
                 if user in cards_developed_this_week.keys():
-                    cards_developed_this_week[user["FullName"]] += int(AppDevBoard.cards[hist[0]]["Size"])
+                    cards_developed_this_week[user["FullName"]] += size
                 else:
-                    cards_developed_this_week[user["FullName"]] = int(AppDevBoard.cards[hist[0]]["Size"])
+                    cards_developed_this_week[user["FullName"]] = size
             dev_complete_limit = True
         if item[0] == "Passed QA" and passed_qa_limit is False\
                 and parser.parse(item[1]) >= utc.localize(datetime.combine(last_monday, datetime.min.time())):
             for user in card_users:
-                weekly_points_per_user[user["FullName"]] += int(AppDevBoard.cards[hist[0]]["Size"])
+                weekly_points_per_user[user["FullName"]] += size
             passed_qa_limit = True
         if item[0] == "Testing" and\
                 parser.parse(item[1]) >= utc.localize(datetime.combine(last_monday, datetime.min.time())):
-            weekly_points_per_user["Cindy Sorrick"] += int(AppDevBoard.cards[hist[0]]["Size"])
+            weekly_points_per_user["Cindy Sorrick"] += size
+
+
+# Remove users who have no points this week
+remove_keys = []
+for key, value in weekly_points_per_user.items():
+    if value == 0:
+        remove_keys.append(key)
+for key in remove_keys:
+    del weekly_points_per_user[key]
 
 weekly_points_per_user_data = [go.Bar(
     x=list(weekly_points_per_user.keys()),
@@ -129,27 +165,13 @@ weekly_points_per_user_data = [go.Bar(
 
 py.plot(weekly_points_per_user_data, filename='Weekly-Points-Per-User', auto_open=False)
 print("Weekly Points Per User... Done")
+limit_colors = []
+total_cards_list = []
+wip_limit_list = []
 lane_limit_pie_list = []
 pie_annotation_list = []
 index = 0
 for lane in AppDevBoard.top_level_lanes:
-
-    # record card sizes per user
-    for card in lane["Cards"]:
-        for username in card["AssignedUsers"]:
-            username = username["FullName"]
-            if username in card_size_by_user.keys():
-                card_size_by_user[username] += card["Size"]
-            else:
-                card_size_by_user[username] = card["Size"]
-    for child_lane in lane["ChildLanes"]:
-        for card in child_lane["Cards"]:
-            for username in card["AssignedUsers"]:
-                username = username["FullName"]
-                if username in card_size_by_user.keys():
-                    card_size_by_user[username] += card["Size"]
-                else:
-                    card_size_by_user[username] = card["Size"]
 
     # Calculate size of cards in lane vs lane WIP limit
     size = 0
@@ -167,51 +189,12 @@ for lane in AppDevBoard.top_level_lanes:
     # pipe_one.gauge("Leankit.Lanes.TotalSizes."+lane["Title"], size)
     size_available = int(lane["CardLimit"]) - size
     if lane["Title"] in possible_stuck_lanes:
-        index += 1
-        x1 = 0
-        x2 = 0
-        y1 = 0
-        y2 = 0
-        if index % 2 == 0:
-            x1 = 0.66
-            x2 = 1
+        total_cards_list.append(size)
+        wip_limit_list.append(int(lane["CardLimit"]))
+        if size > int(lane["CardLimit"]):
+            limit_colors.append('#f7bfbb')
         else:
-            x1 = 0
-            x2 = 0.33
-        if index <= 2:
-            y1 = 0.66
-            y2 = 1
-        if 2 < index <= 4:
-            y1 = 0.33
-            y2 = 0.66
-        if 4 < index <= 6:
-            y1 = 0
-            y2 = 0.33
-
-        lane_limit_pie = {
-            'labels': ['Open', 'WIP'],
-            'values': [size_available, size],
-            'name': lane["Title"],
-            'type': 'pie',
-            'text': [lane["Title"]],
-            'textinfo': 'value',
-            'marker': {
-                'colors': ['#41f44c', '#f48641']
-            },
-            'domain': {
-                'x': [x1, x2],
-                'y': [y1, y2]
-            }
-        }
-        pie_annotation = {
-            'font': {'size': 20},
-            'showarrow': False,
-            'text': lane["Title"],
-            'x': x1,
-            'y': (y1 + y2) / 2
-        }
-        lane_limit_pie_list.append(lane_limit_pie)
-        pie_annotation_list.append(pie_annotation)
+            limit_colors.append('#bcffcc')
 
     # Calculate cycle time for each individual card within the lane
     cards = []
@@ -224,10 +207,6 @@ for lane in AppDevBoard.top_level_lanes:
         for username in card["AssignedUsers"]:
             cards.append("ID-" + str(card["ExternalCardID"]))
             cycle_times.append(card_cycle_time)
-            '''pipe_one.gauge("Leankit.Lanes.CycleTimes."+lane["Title"] + ".ID-" + card["ExternalCardID"]
-                           + "." + username["FullName"] + ".CycleTime", card_cycle_time)
-            pipe_one.gauge("Leankit.Lanes.CycleTimes." + lane["Title"] + ".ID-" + card["ExternalCardID"]
-                           + "." + username["FullName"] + ".Size", card["Size"])'''
     for child_lane in lane["ChildLanes"]:
         for card in child_lane["Cards"]:
             card_cycle_time = (datetime.now() - parser.parse(card["LastMove"])).total_seconds() / 86400.0
@@ -236,10 +215,7 @@ for lane in AppDevBoard.top_level_lanes:
             for username in card["AssignedUsers"]:
                 cards.append("ID-" + str(card["ExternalCardID"]))
                 cycle_times.append(card_cycle_time)
-                '''pipe_one.gauge("Leankit.Lanes.CycleTimes." + lane["Title"]+".ID-" + card["ExternalCardID"]
-                               + "." + username["FullName"] + ".CycleTime", card_cycle_time)
-                pipe_one.gauge("Leankit.Lanes.CycleTimes." + lane["Title"] + ".ID-" + card["ExternalCardID"]
-                               + "." + username["FullName"] + ".Size", card["Size"])'''
+
     # Gauge cycle time for lane
     # pipe_one.gauge("Leankit.Lanes.CycleTimes."+lane["Title"], total_lane_cycle_time)
     if lane["Title"] in possible_stuck_lanes:
@@ -273,16 +249,26 @@ for lane in AppDevBoard.top_level_lanes:
                     if parser.parse(card["LastMove"]) >= datetime.combine(last_monday, datetime.min.time()):
                         size_of_cards_deployed_this_week += card["Size"]
 
-pie_layout = go.Layout(
-    title='Lane Limits',
-    annotations=pie_annotation_list,
+limit_trace = go.Table(
+    header=dict(
+        values=['Lane', 'Total Card Size', 'WIP Limit'],
+        fill=dict(color='#60656d'),
+        line=dict(color='white'),
+        font=dict(color='white', size=14),
+        height=40
+    ),
+    cells=dict(
+        values=[possible_stuck_lanes, total_cards_list, wip_limit_list],
+        fill=dict(color=[limit_colors]),
+        line=dict(color='white'),
+        font=dict(color='black', size=14),
+        height=40
+    )
 )
-fig = {
-    'data': lane_limit_pie_list,
-    'layout': pie_layout
-}
-py.plot(fig, filename="Lane-Limits", auto_open=False)
-print("Lane Limits... Done")
+
+limit_data = [limit_trace]
+
+py.plot(limit_data, filename="Lane-Limits-Table", auto_open=False)
 
 # gauge total size of cards in dev complete this week by user
 cards_developed_this_week_data = [go.Bar(
@@ -293,12 +279,29 @@ cards_developed_this_week_data = [go.Bar(
 py.plot(cards_developed_this_week_data, filename='Cards-Developed-This-Week', auto_open=False)
 print("Cards Developed This Week... Done")
 
-# include plot here for total card size per user
-
-'''    for user in cards_developed_this_week.keys():
-        pipe_one.gauge("Leankit.Users.WeeklyDevelopment." + user, cards_developed_this_week[user])
-    # gauge total size of cards deployed this week
-    pipe_one.gauge("Leankit.WeeklyDeployments", size_of_cards_deployed_this_week)
-    pipe_one.send()
-    print("Data sent...")
-'''
+stuck_cards_id = []
+stuck_cards_time = []
+stuck_cards_lane = []
+stuck_cards_title = []
+stuck_cards_block_reason = []
+for card in stuck_cards:
+    stuck_cards_id.append("ID-" + str(card[0]["ExternalCardID"]))
+    stuck_cards_title.append(card[0]["Title"])
+    stuck_cards_time.append(int(int(card[1].total_seconds())/86400.0))
+    stuck_cards_lane.append(AppDevBoard.Lanes[card[0]["LaneId"]]["Title"])
+    stuck_cards_block_reason.append(str(card[0]['BlockReason']))
+trace = go.Table(
+    header=dict(
+        values=['Card', 'Title', 'Days Since Update', 'Lane', 'Block Reason'],
+        fill=dict(color='red'),
+        font=dict(color='white', size=14)
+    ),
+    cells=dict(
+        values=[stuck_cards_id, stuck_cards_title, stuck_cards_time, stuck_cards_lane, stuck_cards_block_reason],
+        height=50,
+        fill=dict(color='#f7bfbb'),
+        font=dict(color='black', size=14)
+    )
+)
+stuck_cards_data = [trace]
+stuck_div = py.plot(stuck_cards_data, filename='Stuck-Cards', auto_open=False)
