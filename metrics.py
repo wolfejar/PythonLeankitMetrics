@@ -31,6 +31,12 @@ def take_second(elem):
     return elem[1]
 
 
+def cleanhtml(raw_html):
+    cleanr = re.compile('<.*?>')
+    cleantext = re.sub(cleanr, '', raw_html)
+    return cleantext
+
+
 AppDevBoard = leankit.Board(AppDevID)
 card_size_by_user = {}
 cards_developed_this_week = {}
@@ -45,6 +51,8 @@ for user in AppDevBoard.users.items():
 card_history = {}
 stuck_cards = []
 possible_stuck_lanes = ["Active", "Development", "Other", "Code Review", "Dev Complete",
+                        "Available for Testing", "Testing", "Passed QA"]
+stuck_parent_lanes = ["Active", "Code Review", "Dev Complete",
                         "Available for Testing", "Testing", "Passed QA"]
 app_list = ['admissions', 'sso', 'ctam', 'eis', 'elp', 'expansis', 'gradesubmission', 'grouper', 'eprofile',
             'sanitychecker', 'idmservices', 'idmsupport', 'jenkins', 'jobapp', 'attendance', 'peoplesearch',
@@ -170,9 +178,14 @@ for card in card_history.items():
             card_move_events.append((event["ToLaneTitle"], event["EventDateTime"]))
     # record cards stuck in certain lanes for more than 3 days
     time_since_move = datetime.now() - card[1][-1]["DateTime"]
-    if time_since_move > timedelta(days=3) and\
-            AppDevBoard.Lanes[AppDevBoard.cards[card[0]]["LaneId"]]["Title"] in possible_stuck_lanes:
-        stuck_cards.append((AppDevBoard.cards[card[0]], time_since_move))
+    if time_since_move > timedelta(days=3):
+        lane_title = AppDevBoard.Lanes[AppDevBoard.cards[card[0]]["LaneId"]]["Title"]
+        if lane_title in stuck_parent_lanes:
+            stuck_cards.append((AppDevBoard.cards[card[0]], time_since_move))
+        elif lane_title in ["Other", "Development"]:
+            parent_lane_id = AppDevBoard.Lanes[AppDevBoard.cards[card[0]]["LaneId"]]["ParentLaneId"]
+            if AppDevBoard.Lanes[parent_lane_id]["Title"] == "Active":
+                stuck_cards.append((AppDevBoard.cards[card[0]], time_since_move))
     all_card_moves[card[0]] = card_move_events
 stuck_cards.sort(key=take_second, reverse=True)  # Sort stuck cards in descending order by the time since last move
 card_times = {}
@@ -267,7 +280,7 @@ for lane in AppDevBoard.top_level_lanes:
             size += card["Size"]
     # pipe_one.gauge("Leankit.Lanes.TotalSizes."+lane["Title"], size)
     size_available = int(lane["CardLimit"]) - size
-    if lane["Title"] in possible_stuck_lanes:
+    if lane["Title"] in stuck_parent_lanes:
         total_cards_list.append(size)
         wip_limit_list.append(int(lane["CardLimit"]))
         if size > int(lane["CardLimit"]):
@@ -337,7 +350,7 @@ limit_trace = go.Table(
         height=40
     ),
     cells=dict(
-        values=[possible_stuck_lanes, total_cards_list, wip_limit_list],
+        values=[stuck_parent_lanes, total_cards_list, wip_limit_list],
         fill=dict(color=[limit_colors]),
         line=dict(color='white'),
         font=dict(color='black', size=14),
@@ -363,6 +376,7 @@ stuck_cards_time = []
 stuck_cards_lane = []
 stuck_cards_title = []
 stuck_cards_block_reason = []
+stuck_cards_comment = []
 for card in stuck_cards:
     stuck_cards_id.append("ID-" + str(card[0]["ExternalCardID"]))
     stuck_cards_title.append(card[0]["Title"])
@@ -372,14 +386,23 @@ for card in stuck_cards:
     else:
         stuck_cards_lane.append(AppDevBoard.Lanes[card[0]["LaneId"]]["Title"])
     stuck_cards_block_reason.append(str(card[0]['BlockReason']).replace("\n", ""))
+    if card[0]['CommentsCount'] > 0 and stuck_cards_lane[-1] == "Active":
+        clean_str = cleanhtml(card[0].comments[-1]['Text'])
+        if len(clean_str) > 300:
+            stuck_cards_comment.append(clean_str[0:301] + " ...")
+        else:
+            stuck_cards_comment.append(clean_str)
+    else:
+        stuck_cards_comment.append("")
 trace = go.Table(
     header=dict(
-        values=['Card', 'Title', 'Days Since Update', 'Lane', 'Block Reason'],
+        values=['Card', 'Title', 'Days Since Update', 'Lane', 'Block Reason', 'Last Comment (if in Development)'],
         fill=dict(color='red'),
         font=dict(color='white', size=14)
     ),
     cells=dict(
-        values=[stuck_cards_id, stuck_cards_title, stuck_cards_time, stuck_cards_lane, stuck_cards_block_reason],
+        values=[stuck_cards_id, stuck_cards_title, stuck_cards_time, stuck_cards_lane, stuck_cards_block_reason,
+                stuck_cards_comment],
         height=50,
         fill=dict(color='#f7bfbb'),
         font=dict(color='black', size=14)
