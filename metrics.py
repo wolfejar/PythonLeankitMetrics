@@ -49,6 +49,33 @@ possible_stuck_lanes = ["Active", "Code Review", "Dev Complete",
 app_list = ['admissions', 'sso', 'ctam', 'eis', 'elp', 'expansis', 'gradesubmission', 'grouper', 'eprofile',
             'sanitychecker', 'idmservices', 'idmsupport', 'jenkins', 'jobapp', 'attendance', 'peoplesearch',
             'psengine', 'pdb', 'photoroster', 'scantron', 'sga', 'shibboleth', 'telecom', 'teval']
+app_card_color = [
+'#FF0000',
+'#FFFF00',
+'#00EAFF',
+'#AA00FF',
+'#FF7F00',
+'#BFFF00',
+'#0095FF',
+'#FF00AA',
+'#FFD400',
+'#6AFF00',
+'#0040FF',
+'#EDB9B9',
+'#B9D7ED',
+'#E7E9B9',
+'#DCB9ED',
+'#B9EDE0',
+'#8F2323',
+'#23628F',
+'#8F6A23',
+'#6B238F',
+'#4F8F23',
+'#000000',
+'#737373',
+'#CCCCCC',
+]
+
 app_dict = {}
 for card in AppDevBoard.cards:
     # print(AppDevBoard.cards[card])
@@ -57,7 +84,7 @@ for card in AppDevBoard.cards:
         history.append(item)
     card_history[card] = history
     for app_title in app_list:
-        if app_title in re.sub('-','', AppDevBoard.cards[card]['Title'].lower()):
+        if app_title in re.sub('-', '', AppDevBoard.cards[card]['Title'].lower()):
             if app_title in app_dict.keys():
                 app_dict[app_title].append(AppDevBoard.cards[card])
             else:
@@ -65,19 +92,72 @@ for card in AppDevBoard.cards:
 
     # too many cards in archive lane to store history
 
-app_card_id = []
-app_card_app = []
-app_card_color = []
-app_card_days = []
-app_card_size = []
-
-'''for key, value in app_dict.items():
+app_card_id = {}
+app_card_days = {}
+app_card_size = {}
+app_card_structs = {}
+app_card_index = {}
+app_card_app = {}
+index = 0
+for key, value in app_dict.items():
+    index += 1
+    app_card_index[key] = []
+    app_card_app[key] = []
     for card in value:
-        app_card_days.append((datetime.now() - card["CreateDate"]).days)
-        app_card_app.append(key)
-        app_card_size.append(card['Size'])
-        app_card_id.append(card['ExternalCardID'])
-'''
+        app_card_app[key].append(key)
+        app_card_index[key].append(index)
+        for event in card_history[card['Id']]:
+            if event['Type'] == 'CardCreationEventDTO':
+                if key in app_card_days.keys():
+                    app_card_days[key].append((datetime.now() - event['DateTime']).days)
+                else:
+                    app_card_days[key] = [(datetime.now() - event['DateTime']).days]
+                break
+        if key in app_card_size.keys():
+            size = 1 if card['Size'] == 0 else card['Size']
+            app_card_size[key].append(size)
+            app_card_id[key].append(card['Title'])
+        else:
+            size = 1 if card['Size'] == 0 else card['Size']
+            app_card_size[key] = [size]
+            # if not card['ExternalCardID']:
+                # app_card_id[key] =
+            app_card_id[key] = [card['Title']]
+# add empty arrays for apps with no data
+for key in app_list:
+    if key not in app_card_id.keys():
+        app_card_id[key] = []
+        app_card_days[key] = []
+        app_card_size[key] = []
+        app_card_index[key] = []
+        app_card_app[key] = []
+traces = []
+
+for i, app in enumerate(app_list):
+    traces.append({
+        "x": app_card_days[app],
+        # y=app_card_size[app],
+        "y": app_card_app[app],
+        "name": app,
+        "mode": "markers",
+        "marker": {
+            "size": 10,
+            "color": app_card_color[i],
+            "line": {
+                "width": 2
+            }
+        },
+        "text": app_card_id[app],
+        "type": "scatter"
+    })
+app_layout = dict(title='Cards Per Application',
+                  yaxis=dict(zeroline=False, title="Application"),
+                  xaxis=dict(zeroline=False, title="Days Since Creation"),
+                  hovermode="closest"
+                  )
+fig = dict(data=traces, layout=app_layout)
+py.plot(fig, filename='Cards-Per-Application')
+
 all_card_moves = {}
 for card in card_history.items():
     card_move_events = []
@@ -148,7 +228,6 @@ for hist in all_card_moves.items():
         if item[0] == "Testing" and\
                 parser.parse(item[1]) >= utc.localize(datetime.combine(last_monday, datetime.min.time())):
             weekly_points_per_user["Cindy Sorrick"] += size
-
 
 # Remove users who have no points this week
 remove_keys = []
@@ -233,7 +312,7 @@ for lane in AppDevBoard.top_level_lanes:
             )
         )
         fig = go.Figure(data=cycle_times_in_lane, layout=cycle_times_in_lane_layout)
-        py.plot(fig, filename=lane["Title"], auto_open=False)
+        # py.plot(fig, filename=lane["Title"], auto_open=False)
         print(lane["Title"] + "... Done")
     # Track number of cards moved to "Done" this week
     if lane["Title"] == "Done":
@@ -289,7 +368,7 @@ for card in stuck_cards:
     stuck_cards_title.append(card[0]["Title"])
     stuck_cards_time.append(int(int(card[1].total_seconds())/86400.0))
     stuck_cards_lane.append(AppDevBoard.Lanes[card[0]["LaneId"]]["Title"])
-    stuck_cards_block_reason.append(str(card[0]['BlockReason']))
+    stuck_cards_block_reason.append(str(card[0]['BlockReason']).replace("\n", ""))
 trace = go.Table(
     header=dict(
         values=['Card', 'Title', 'Days Since Update', 'Lane', 'Block Reason'],
