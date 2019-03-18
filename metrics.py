@@ -44,7 +44,7 @@ for user in AppDevBoard.users.items():
 # store Event objects from each card in card_history dictionary
 card_history = {}
 stuck_cards = []
-possible_stuck_lanes = ["Active", "Code Review", "Dev Complete",
+possible_stuck_lanes = ["Active", "Development", "Other", "Code Review", "Dev Complete",
                         "Available for Testing", "Testing", "Passed QA"]
 app_list = ['admissions', 'sso', 'ctam', 'eis', 'elp', 'expansis', 'gradesubmission', 'grouper', 'eprofile',
             'sanitychecker', 'idmservices', 'idmsupport', 'jenkins', 'jobapp', 'attendance', 'peoplesearch',
@@ -156,7 +156,7 @@ app_layout = dict(title='Cards Per Application',
                   hovermode="closest"
                   )
 fig = dict(data=traces, layout=app_layout)
-py.plot(fig, filename='Cards-Per-Application')
+py.plot(fig, filename='Cards-Per-Application', auto_open=False)
 
 all_card_moves = {}
 for card in card_history.items():
@@ -367,7 +367,10 @@ for card in stuck_cards:
     stuck_cards_id.append("ID-" + str(card[0]["ExternalCardID"]))
     stuck_cards_title.append(card[0]["Title"])
     stuck_cards_time.append(int(int(card[1].total_seconds())/86400.0))
-    stuck_cards_lane.append(AppDevBoard.Lanes[card[0]["LaneId"]]["Title"])
+    if AppDevBoard.Lanes[card[0]["LaneId"]]["Title"] in ["Other", "Development"]:
+        stuck_cards_lane.append("Active")
+    else:
+        stuck_cards_lane.append(AppDevBoard.Lanes[card[0]["LaneId"]]["Title"])
     stuck_cards_block_reason.append(str(card[0]['BlockReason']).replace("\n", ""))
 trace = go.Table(
     header=dict(
