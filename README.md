@@ -3,7 +3,7 @@
 Usage - gather metrics from leankit board and create visual representations of data using plotly
 
 # Dependencies:  
-python 3.6
+python 3.6  
 pip install leankit  
 pip install pytz  
 pip install plotly   
