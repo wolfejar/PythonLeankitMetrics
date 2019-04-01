@@ -25,3 +25,6 @@ pip install python-dateutil
 ```bash
 python metrics.py [leankit_domain][leankit_username][leankit_password][plotly_username][plotly_api_key]
 ```
+
+## Note:
+You will need to update lane names, etc. as values change on the board.
