@@ -22,7 +22,7 @@ python metrics.py [leankit_domain][leankit_username][leankit_password][plotly_us
 ## Note:
 You will need to update lane names, etc. as values change on the board.
 
-## Recomendation
+## Recommendation
 Create a job in crontab to run [every hour](https://crontab.guru/every-1-hour) to update metrics.
 
 ```bash
