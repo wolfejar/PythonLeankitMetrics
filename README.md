@@ -6,7 +6,7 @@ This script gathers metrics from a LeanKit board and creates visual representati
 You will need a [LeanKit](https://leankit.com/) account with an active board, and an account at [Plotly](https://plot.ly/)
 to push the metrics to.
 
-## Dependencies:  
+## Dependencies  
 python 3.6  
 ```bash
 pip install leankit  
@@ -14,7 +14,7 @@ pip install pytz
 pip install plotly   
 pip install python-dateutil
 ```
-## Run from command line: 
+## Run from command line 
 ```bash
 python metrics.py [leankit_domain][leankit_username][leankit_password][plotly_username][plotly_api_key]
 ```
