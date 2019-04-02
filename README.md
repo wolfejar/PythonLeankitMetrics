@@ -1,7 +1,7 @@
 # PythonLeankitMetrics
 
 ## Usage
-This script gathers metrics from a LeanKit board and create visual representations of data using Plotly.  
+This script gathers metrics from a LeanKit board and creates visual representations of data using Plotly.  
 
 You will need a [LeanKit](https://leankit.com/) account with an active board, and an account at [Plotly](https://plot.ly/)
 to push the metrics to.
