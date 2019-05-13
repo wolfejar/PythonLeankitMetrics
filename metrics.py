@@ -12,7 +12,7 @@ import plotly.plotly as py
 import plotly.graph_objs as go
 import re
 
-# cmd args: domain, username, password
+# cmd args: leankit_domain, leankit_username, leankit_password, plotly_username, plotly_api_key
 
 utc = pytz.UTC
 
