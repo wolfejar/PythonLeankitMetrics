@@ -19,15 +19,15 @@ pip install python-dateutil
 python metrics.py [leankit_domain][leankit_username][leankit_password][plotly_username][plotly_api_key]
 ```
 
-## Note:
+### Note:
 You will need to update lane names, etc. as values change on the board.
 
-## Recommendation
+### Recommendation
 Create a job in crontab to run [every hour](https://crontab.guru/every-1-hour) to update metrics.
 
 ```bash
 sudo crontab -e
 ```
 
-## Future Work
+### Future Work
 Currently, the application does not store any information in a database after execution. A simple backend database could allow for this script to plot meaningful data about team performance over months, years, etc.
