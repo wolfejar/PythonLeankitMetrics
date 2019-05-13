@@ -28,3 +28,6 @@ Create a job in crontab to run [every hour](https://crontab.guru/every-1-hour) t
 ```bash
 sudo crontab -e
 ```
+
+## Future Work
+Currently, the application does not store any information in a database after execution. A simple backend database could allow for this script to plot meaningful data about team performance over months, years, etc.
